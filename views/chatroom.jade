@@ -1,0 +1,46 @@
+doctype html
+html
+    head
+        title=title
+        link(href='/stylesheets/bootstrap.css',type='text/css',rel='stylesheet')
+        script(src='/javascripts/jquery.js')
+        script(src='/javascripts/bootstrap.js')
+        script(src='/javascripts/socket.io.js')
+        script.
+            var socket=io();
+            socket.on('ev_toclient',function(_content){
+            $('#list').val($('#list').val()+'\n'+_content);
+            });
+
+            function send()
+            {
+                var _message=$('#message').val();
+                var _user=$('#userName').val();
+                var _content=_user+' : '+_message;
+                var _curMsg=$('#list').val();
+                //$('#list').val(_curMsg+'\n'+_content);
+                socket.emit('ev_toserver',_content);
+                $('#message').val('');
+            }
+    body
+        form
+            div.container
+                div.row
+                    div.col-md-12
+                        div.form-inline
+                            label your name:
+                            input#userName.form-control(type='text')
+                    div.col-md-12
+                        label your message:
+                    div.col-md-12
+                        input#message.form-control(type='text')
+                br
+                br
+                div.row
+                    div.col-md-4
+                        input.btn.btn-default(type='button',value='Submit',onclick='send()')
+                br
+                br
+                div.row
+                    div.col-md-12
+                        textarea#list.form-control(rows='15')
