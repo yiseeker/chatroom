@@ -6,41 +6,127 @@ html
         script(src='/javascripts/jquery.js')
         script(src='/javascripts/bootstrap.js')
         script(src='/javascripts/socket.io.js')
+        script(src='/javascripts/adapter.js')
         script.
+
+            //Initialize socket.io
             var socket=io();
-            socket.on('ev_toclient',function(_content){
-            $('#list').val($('#list').val()+'\n'+_content);
+            socket.emit('join');
+
+            socket.on('ready',function(){
+                $('#serverState').html('READY');
             });
 
-            function send()
-            {
-                var _message=$('#message').val();
-                var _user=$('#userName').val();
-                var _content=_user+' : '+_message;
-                var _curMsg=$('#list').val();
-                //$('#list').val(_curMsg+'\n'+_content);
-                socket.emit('ev_toserver',_content);
-                $('#message').val('');
+            socket.on('not ready',function(){
+                $('#serverState').html('NOT READY');
+            });
+
+            socket.on('offer',function(description){
+                console.log('get offer');
+                pc.setRemoteDescription(new RTCSessionDescription(description),
+                function(){
+                    console.log('setRemoteDescription success');
+                },
+                function(error){
+                    console.log('setRemoteDescription error: '+error);
+                });
+                pc.createAnswer(function(desc){
+                   pc.setLocalDescription(desc,function(){
+                       console.log('setLocalDescription success');
+                   },
+                   function(error){
+                       console.log('setLocalDescription error: '+error);
+                   });
+                   socket.emit('answer',desc);
+                });
+            });
+
+            socket.on('answer',function(desc){
+                console.log('get answer');
+                pc.setRemoteDescription(new RTCSessionDescription(desc),function(){
+                    console.log('setRemoteDescription success');
+                },
+                function(error){
+                    console.log('setRemoteDescription error: '+error);
+                }
+                );
+            });
+
+            socket.on('icecandidate',function(candidate){
+                console.log('remove icecandidate arrives');
+                pc.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+
+            //Initialize WEBRTC
+            var pc_config = {
+                iceServers: [{
+                    url: "stun:stun.services.mozilla.com",
+                    username: "louis@mozilla.com",
+                    credential: "webrtcdemo"
+                },
+                    {
+                        url: 'turn:numb.viaqenie.ca',
+                        username: 'webrtc@live.com',
+                        credential: 'muazkh'
+                    }
+                ]
+            };
+
+            var pc=new RTCPeerConnection(pc_config);
+
+            pc.onaddstream=function(event){
+                attachMediaStream(document.getElementById('remoteVideo'),event.stream);
             }
+
+            pc.onicecandidate=function(event){
+                var candidate=event.candidate;
+                socket.emit('icecandidate',candidate);
+                console.log('local candidate arrives');
+            }
+
+            function doCall(){
+                pc.createOffer(function(description){
+                    pc.setLocalDescription(description,function(){
+                        console.log('setLocalDescription success');
+                    },function(error){
+                        console.log('setLocalDescription error: '+error);
+                    });
+                    socket.emit('offer',description);
+                    console.log('doCall...');
+                },
+                function(error){
+                    console.log('createOffer error: '+error);
+                });
+            }
+
+            getUserMedia({video:true,audio:false},function(stream){
+                attachMediaStream(document.getElementById('localVideo'),stream);
+                pc.addStream(stream);
+            },
+            function(error){
+                console.log('getUserMedia error: '+error);
+            });
+
     body
         form
             div.container
                 div.row
-                    div.col-md-12
+                    div.col-md-12.col-sm-12
+                        h1 Server State:
+                        label#serverState
+                div.row
+                    div.col-md-12.col-sm-12
                         div.form-inline
-                            label your name:
-                            input#userName.form-control(type='text')
-                    div.col-md-12
-                        label your message:
-                    div.col-md-12
-                        input#message.form-control(type='text')
-                br
-                br
+                            input(type='button',value='call',onclick='doCall()')
                 div.row
-                    div.col-md-4
-                        input.btn.btn-default(type='button',value='Submit',onclick='send()')
-                br
-                br
+                    div.col-md-12.col-sm-12
+                        label local video
+                    div.col-md-12.col-sm-12
+                        video#localVideo(autoplay='autoplay')
                 div.row
-                    div.col-md-12
-                        textarea#list.form-control(rows='15')
+                    div.col-md-12.col-sm-12
+                        label remote video
+                    div.col-md-12.col-sm-12
+                        video#remoteVideo(autoplay='autoplay')
+                br
+                br

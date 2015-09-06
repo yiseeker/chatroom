@@ -48,14 +48,36 @@ app.use(function(err, req, res, next) {
     });
 });
 
+var clientCount=0;
+
 io.on('connection',function(socket){
-    console.log('a user is connected!');
     socket.on('disconnect',function(){
-        console.log('user is leaving...');
+        console.log('user leave,count: '+(--clientCount));
+        if(clientCount!=2)
+        {
+            io.sockets.emit('not ready');
+            console.log('Server is not Ready!');
+        }
     });
-    socket.on('ev_toserver',function(_content){
-        console.log('GET : '+_content);
-        io.emit('ev_toclient',_content);
+    socket.on('join',function(){
+        console.log('user join, count: '+(++clientCount));
+        if(clientCount==2)
+        {
+            io.sockets.emit('ready');
+            console.log('Server is Ready!');
+        }
+    });
+    socket.on('offer',function(description){
+        console.log('offer arrives');
+        socket.broadcast.emit('offer',description);
+    });
+    socket.on('answer',function(desc){
+        console.log('answer arrives');
+        socket.broadcast.emit('answer',desc);
+    });
+    socket.on('icecandidate',function(candidate){
+        console.log(socket.id+' : candidate arrives:\n'+JSON.stringify(candidate));
+        socket.broadcast.emit('icecandidate',candidate);
     });
 })
 
