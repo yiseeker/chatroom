@@ -7,113 +7,19 @@ html
         script(src='/javascripts/bootstrap.js')
         script(src='/javascripts/socket.io.js')
         script(src='/javascripts/adapter.js')
-        script.
-
-            //Initialize socket.io
-            var socket=io();
-            socket.emit('join');
-
-            socket.on('ready',function(){
-                $('#serverState').html('READY');
-            });
-
-            socket.on('not ready',function(){
-                $('#serverState').html('NOT READY');
-            });
-
-            socket.on('offer',function(description){
-                console.log('get offer');
-                pc.setRemoteDescription(new RTCSessionDescription(description),
-                function(){
-                    console.log('setRemoteDescription success');
-                },
-                function(error){
-                    console.log('setRemoteDescription error: '+error);
-                });
-                pc.createAnswer(function(desc){
-                   pc.setLocalDescription(desc,function(){
-                       console.log('setLocalDescription success');
-                   },
-                   function(error){
-                       console.log('setLocalDescription error: '+error);
-                   });
-                   socket.emit('answer',desc);
-                });
-            });
-
-            socket.on('answer',function(desc){
-                console.log('get answer');
-                pc.setRemoteDescription(new RTCSessionDescription(desc),function(){
-                    console.log('setRemoteDescription success');
-                },
-                function(error){
-                    console.log('setRemoteDescription error: '+error);
-                }
-                );
-            });
-
-            socket.on('icecandidate',function(candidate){
-                console.log('remove icecandidate arrives');
-                pc.addIceCandidate(new RTCIceCandidate(candidate));
-            });
-
-            //Initialize WEBRTC
-            var pc_config = {
-                iceServers: [{
-                    url: "stun:stun.services.mozilla.com",
-                    username: "louis@mozilla.com",
-                    credential: "webrtcdemo"
-                },
-                    {
-                        url: 'turn:numb.viaqenie.ca',
-                        username: 'webrtc@live.com',
-                        credential: 'muazkh'
-                    }
-                ]
-            };
-
-            var pc=new RTCPeerConnection(pc_config);
-
-            pc.onaddstream=function(event){
-                attachMediaStream(document.getElementById('remoteVideo'),event.stream);
-            }
-
-            pc.onicecandidate=function(event){
-                var candidate=event.candidate;
-                socket.emit('icecandidate',candidate);
-                console.log('local candidate arrives');
-            }
-
-            function doCall(){
-                pc.createOffer(function(description){
-                    pc.setLocalDescription(description,function(){
-                        console.log('setLocalDescription success');
-                    },function(error){
-                        console.log('setLocalDescription error: '+error);
-                    });
-                    socket.emit('offer',description);
-                    console.log('doCall...');
-                },
-                function(error){
-                    console.log('createOffer error: '+error);
-                });
-            }
-
-            getUserMedia({video:true,audio:false},function(stream){
-                attachMediaStream(document.getElementById('localVideo'),stream);
-                pc.addStream(stream);
-            },
-            function(error){
-                console.log('getUserMedia error: '+error);
-            });
 
     body
         form
-            div.container
+            div.container#container
                 div.row
-                    div.col-md-12.col-sm-12
-                        h1 Server State:
+                    div.col-md-2.col-sm-12
+                        h3 [Server State]:
+                    div.col-md-2.col-sm-12
                         label#serverState
+                    div.col-md-2.col-sm-12
+                        h3 [Room Name]:
+                    div.col-md-2.col-sm-12
+                        h3#roomName
                 div.row
                     div.col-md-12.col-sm-12
                         div.form-inline
@@ -123,10 +29,100 @@ html
                         label local video
                     div.col-md-12.col-sm-12
                         video#localVideo(autoplay='autoplay')
-                div.row
-                    div.col-md-12.col-sm-12
-                        label remote video
-                    div.col-md-12.col-sm-12
-                        video#remoteVideo(autoplay='autoplay')
-                br
-                br
+
+    script.
+        //create hash list
+        var list=new Array();
+
+        //get room name
+        var room=prompt('enter room name:');
+        $('#roomName').html(room);
+
+        //current socketid
+        var socketid;
+
+        //initial local stream
+        var localStream;
+        getUserMedia({video:true,audio:true},function(stream){
+            attachMediaStream(document.getElementById('localVideo'),stream);
+            localStream=stream;
+        },function(error){
+            alert('Initialize local stream failed: '+error);
+        });
+
+        //Initialize socket.io
+        var socket=io();
+        socket.emit('_join',room);
+
+        socket.on('_join',function(socketId){
+            CreateNode(socketId);
+        });
+
+        socket.on('_getSocketId',function(socketid){
+            socketid=socketid;
+            alert(socketid);
+        });
+
+        socket.on('_getOnlineLists',function(clientInRoom){
+            for(var i in clientInRoom){
+                Create(clientInRoom[i].socketid);
+            }
+        });
+
+        //methods
+        function Create(socketId)
+        {
+            //create pc and set up event handler
+            var pc=new RTCPeerConnection(null);
+            pc.addStream(localStream);
+            pc.onaddstream=handleOnAddStream;
+            pc.onicecandidate=handleOnIceCandidate;
+
+            //put the new comer to the online list
+            var client={id:socketId,connection:pc};
+            list.push(client);
+
+            //append a new video object to the DOM tree
+            var div=document.createElement('div');
+            div.setAttribute('class','row');
+            var childDiv1=document.createElement('div');
+            childDiv1.setAttribute('class','col-md-12 col-sm-12');
+            var childLabel1=document.createElement('label');
+            var textNode=document.createTextNode('ID : '+socketId);
+            childLabel1.appendChild(textNode);
+            childDiv1.appendChild(childLabel1);
+            var childDiv2=document.createElement('div');
+            childDiv2.setAttribute('class','col-md-12 col-sm-12');
+            var childVideo=document.createElement('video');
+            childVideo.setAttribute('autoplay','autoplay');
+            childDiv2.appendChild(childVideo);
+            div.appendChild(childDiv1);
+            div.appendChild(childDiv2);
+            document.getElementById('container').appendChild(div);
+        }
+
+        function GetRTCPeerConnectionBySocketId(socketId)
+        {
+            for(var i in list)
+            {
+                if(list[i].id===socketId)
+                {
+                    return list[i].connection;
+                }
+            }
+        }
+
+        function handleOnAddStream(event)
+        {
+
+        }
+
+        function handleOnIceCandidate(event)
+        {
+
+        }
+
+        function send(message)
+        {
+            socket.emit('_message',message);
+        }

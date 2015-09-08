@@ -48,36 +48,52 @@ app.use(function(err, req, res, next) {
     });
 });
 
-var clientCount=0;
-
+//maintain a online client list
+var clientList=new Array();
 io.on('connection',function(socket){
     socket.on('disconnect',function(){
-        console.log('user leave,count: '+(--clientCount));
-        if(clientCount!=2)
+        console.log('user leave');
+    });
+
+
+    socket.on('_join',function(room){
+        console.log('a user join, clientID='+socket.id);
+
+        socket.join(room);
+        var socketId=socket.id;
+
+        //for a new comer, you have 2 step to go:
+        //1.emit you join event to the room.
+        socket.broadcast.to(room).emit('_join',socketId);
+
+        //2.get online clients already in the room.
+        var clientInRoom=new Array();
+        for(var i in clientList)
         {
-            io.sockets.emit('not ready');
-            console.log('Server is not Ready!');
+            if(clientList[i].room===room)
+            {
+                clientInRoom.push(clientList[i]);
+            }
         }
+        socket.emit('_getOnlineLists',clientInRoom);
+        socket.emit('_getSocketId',socketId);
+        //after all above done, add this client to the clientList.
+        clientList.push({room:room,socketid:socketId});
     });
-    socket.on('join',function(){
-        console.log('user join, count: '+(++clientCount));
-        if(clientCount==2)
+
+    socket.on('_message',function(message){
+        if(message.type=='offer')
         {
-            io.sockets.emit('ready');
-            console.log('Server is Ready!');
+
         }
-    });
-    socket.on('offer',function(description){
-        console.log('offer arrives');
-        socket.broadcast.emit('offer',description);
-    });
-    socket.on('answer',function(desc){
-        console.log('answer arrives');
-        socket.broadcast.emit('answer',desc);
-    });
-    socket.on('icecandidate',function(candidate){
-        console.log(socket.id+' : candidate arrives:\n'+JSON.stringify(candidate));
-        socket.broadcast.emit('icecandidate',candidate);
+        else if(message.type=='answer')
+        {
+
+        }
+        else if(message.type=='candidate')
+        {
+
+        }
     });
 })
 
