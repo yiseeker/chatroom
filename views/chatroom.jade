@@ -13,17 +13,14 @@ html
             div.container#container
                 div.row
                     div.col-md-2.col-sm-12
-                        h3 [Server State]:
-                    div.col-md-2.col-sm-12
-                        label#serverState
-                    div.col-md-2.col-sm-12
                         h3 [Room Name]:
                     div.col-md-2.col-sm-12
-                        h3#roomName
-                div.row
-                    div.col-md-12.col-sm-12
-                        div.form-inline
-                            input(type='button',value='call',onclick='doCall()')
+                        h4#roomName
+                    div.col-md-2.col-sm-12
+                        h3 [SocketID]:
+                    div.col-md-2.col-sm-12
+                        h4#SOCKETID
+                br
                 div.row
                     div.col-md-12.col-sm-12
                         label local video
@@ -31,52 +28,112 @@ html
                         video#localVideo(autoplay='autoplay')
 
     script.
-        //create hash list
         var list=new Array();
-
-        //get room name
+        var socket=io();
         var room=prompt('enter room name:');
         $('#roomName').html(room);
-
-        //current socketid
         var socketid;
-
-        //initial local stream
         var localStream;
-        getUserMedia({video:true,audio:true},function(stream){
-            attachMediaStream(document.getElementById('localVideo'),stream);
-            localStream=stream;
-        },function(error){
-            alert('Initialize local stream failed: '+error);
-        });
+        Array.prototype.Remove = function (val) {
+            var index = -1;
+            for (var i in list) {
+                if (list[i].id == val) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index > -1) {
+                this.splice(index, 1);
+            }
+        };
 
         //Initialize socket.io
-        var socket=io();
-        socket.emit('_join',room);
-
         socket.on('_join',function(socketId){
-            CreateNode(socketId);
+            CreatePeer(socketId);
+            SendOffer(socketId);
         });
 
-        socket.on('_getSocketId',function(socketid){
-            socketid=socketid;
-            alert(socketid);
+        //Get self socket ID
+        socket.on('_getSocketId',function(socid){
+            socketid=socid;
+            document.getElementById('SOCKETID').innerText=socid;
         });
 
+        //Get the list of all other online client
         socket.on('_getOnlineLists',function(clientInRoom){
             for(var i in clientInRoom){
-                Create(clientInRoom[i].socketid);
+                if(typeof(clientInRoom[i].socketid)!='undefined')
+                {
+                    CreatePeer(clientInRoom[i].socketid);
+                }
             }
         });
 
+        //When user is offline, you have to remove it from local client list and
+        //remove the video node from the html DOM tree.
+        socket.on('_offline',function(data){
+            RemoveNodeBySocketId(data);
+            list.Remove(data);
+            Traversal();
+            console.log('[User leaves] : '+data);
+        });
+
+        socket.on('_message',function(msg){
+            if(msg.type=='offer')
+            {
+                var peer=GetRTCPeerConnectionBySocketId(msg.from);
+                peer.setRemoteDescription(new RTCSessionDescription(msg.data),function()
+                {
+                    console.log('setRemoteDescription succeed, remote socketID='+msg.from);
+                },function(error){
+                    console.log('setRemoteDescription error, remote socketID='+msg.from+', error='+error);
+                });
+                peer.createAnswer(function(description){
+                    peer.setLocalDescription(description);
+                    var message={type:'answer',from:socketid,to:msg.from,data:description};
+                    send(message);
+                },function(error){
+                    console.log('setRemoteDescription error, remote socketID='+msg.from+', error='+error);
+                });
+            }
+            else if(msg.type=='answer')
+            {
+                var peer=GetRTCPeerConnectionBySocketId(msg.from);
+                peer.setRemoteDescription(new RTCSessionDescription(msg.data),function()
+                {
+                    console.log('setRemoteDescription succeed, remote socketID='+msg.from);
+                },function(error){
+                    console.log('setRemoteDescription error, remote socketID='+msg.from+', error='+error);
+                });
+            }else if(msg.type=='candidate')
+            {
+                var peer=GetRTCPeerConnectionBySocketId(msg.from);
+                if(msg.data!=null)
+                {
+                    peer.addIceCandidate(new RTCIceCandidate(msg.data));
+                }
+            }
+        });
+
+
+
+
+        //******************************************************************************************
         //methods
-        function Create(socketId)
+        function CreatePeer(socketId)
         {
             //create pc and set up event handler
             var pc=new RTCPeerConnection(null);
+            pc.sid=socketId;
             pc.addStream(localStream);
-            pc.onaddstream=handleOnAddStream;
-            pc.onicecandidate=handleOnIceCandidate;
+            pc.onaddstream=function(event){
+                attachMediaStream(document.getElementById('video_'+this.sid),event.stream);
+            };
+            pc.onicecandidate=function(event){
+                var message={type:'candidate',from:socketid,to:null,data:event.candidate};
+                send(message);
+                //console.log('CANDIDATE INFO: '+JSON.stringify(event.candidate));
+            };
 
             //put the new comer to the online list
             var client={id:socketId,connection:pc};
@@ -85,6 +142,7 @@ html
             //append a new video object to the DOM tree
             var div=document.createElement('div');
             div.setAttribute('class','row');
+            div.setAttribute('id',socketId);
             var childDiv1=document.createElement('div');
             childDiv1.setAttribute('class','col-md-12 col-sm-12');
             var childLabel1=document.createElement('label');
@@ -95,10 +153,40 @@ html
             childDiv2.setAttribute('class','col-md-12 col-sm-12');
             var childVideo=document.createElement('video');
             childVideo.setAttribute('autoplay','autoplay');
+            childVideo.setAttribute('id','video_'+socketId);
             childDiv2.appendChild(childVideo);
             div.appendChild(childDiv1);
             div.appendChild(childDiv2);
             document.getElementById('container').appendChild(div);
+        }
+
+        function RemoveNodeBySocketId(sid)
+        {
+            var parent = document.getElementById('container');
+            var child = document.getElementById(sid);
+            if(parent!='Undefined' && child!='Undefined')
+            {
+                parent.removeChild(child);
+                console.log('Remove Peer node success, socketID : '+sid);
+            }
+            else
+            {
+                console.log('Remove Peer node error, socketID : '+sid);
+            }
+        }
+
+        function SendOffer(sid)
+        {
+            var pc=GetRTCPeerConnectionBySocketId(sid);
+            //Start to create offer
+            pc.createOffer(function(description){
+                var message={type:'offer',from:socketid,to:sid,data:description};
+                pc.setLocalDescription(description);
+                send(message);
+                console.log('[createOffer success] from : '+message.from+' to :'+message.to);
+            },function(error){
+                console.log('[createOffer error] : '+error);
+            });
         }
 
         function GetRTCPeerConnectionBySocketId(socketId)
@@ -112,17 +200,29 @@ html
             }
         }
 
-        function handleOnAddStream(event)
-        {
-
-        }
-
-        function handleOnIceCandidate(event)
-        {
-
-        }
-
         function send(message)
         {
             socket.emit('_message',message);
         }
+
+        function Traversal()
+        {
+            console.log('Current Clients :\n');
+            for(var i in list)
+            {
+                if(typeof(list[i].id)!='undefined')
+                {
+                    console.log('ID='+list[i].id);
+                }
+
+            }
+        }
+
+        //Let's go here
+        getUserMedia({video:true,audio:true},function(stream){
+            attachMediaStream(document.getElementById('localVideo'),stream);
+            localStream=stream;
+            socket.emit('_join',room);
+        },function(error){
+            alert('Initialize local stream failed: '+error);
+        });
